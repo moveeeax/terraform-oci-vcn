@@ -9,7 +9,7 @@ default route table, security list and DHCP options so companion modules
 
 ```hcl
 module "vcn" {
-  source = "github.com/cybercapybara/terraform-oci-vcn"
+  source = "github.com/moveeeax/terraform-oci-vcn"
 
   compartment_id = var.compartment_id
   display_name   = "prod-vcn"
