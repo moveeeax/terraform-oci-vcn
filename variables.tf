@@ -104,13 +104,13 @@ variable "flow_logs_log_group_id" {
 }
 
 variable "flow_logs_retention_duration" {
-  description = "Retention period in days for the VCN flow log. OCI accepts 30-day increments from 30 to 360."
+  description = "Retention period in days for the VCN flow log. OCI accepts 30-day increments from 30 to 180."
   type        = number
   default     = 90
 
   validation {
-    condition     = contains([30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360], var.flow_logs_retention_duration)
-    error_message = "flow_logs_retention_duration must be one of 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330 or 360 days."
+    condition     = contains([30, 60, 90, 120, 150, 180], var.flow_logs_retention_duration)
+    error_message = "flow_logs_retention_duration must be one of 30, 60, 90, 120, 150 or 180 days."
   }
 }
 
