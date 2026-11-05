@@ -286,3 +286,14 @@ run "rejects_invalid_flow_log_retention" {
 
   expect_failures = [var.flow_logs_retention_duration]
 }
+
+run "rejects_flow_log_retention_above_provider_maximum" {
+  command = plan
+
+  variables {
+    enable_flow_logs             = true
+    flow_logs_retention_duration = 210
+  }
+
+  expect_failures = [var.flow_logs_retention_duration]
+}

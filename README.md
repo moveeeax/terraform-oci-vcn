@@ -10,7 +10,7 @@ companion modules (subnets, gateways, route tables) can build on top of it.
 
 ```hcl
 module "vcn" {
-  source = "github.com/moveeeax/terraform-oci-vcn"
+  source = "github.com/moveeeax/terraform-oci-vcn?ref=v1.0.0"
 
   compartment_id = var.compartment_id
   display_name   = "prod-vcn"
@@ -42,7 +42,7 @@ permits nothing. Add the rules you actually want:
 
 ```hcl
 module "vcn" {
-  source = "github.com/moveeeax/terraform-oci-vcn"
+  source = "github.com/moveeeax/terraform-oci-vcn?ref=v1.0.0"
 
   compartment_id = var.compartment_id
   display_name   = "prod-vcn"
@@ -110,7 +110,7 @@ on 1.5.
 | `default_security_list_egress_rules`   | Egress rules for the default security list. Empty means no outbound traffic is allowed.                      | `list(object)`  | `[]`              |    no    |
 | `enable_flow_logs`                     | Enable VCN flow logs through the OCI Logging service.                                                        | `bool`          | `false`           |    no    |
 | `flow_logs_log_group_id`               | Existing log group OCID for the flow log. Null creates one.                                                  | `string`        | `null`            |    no    |
-| `flow_logs_retention_duration`         | Flow log retention in days, in 30-day increments from 30 to 360.                                             | `number`        | `90`              |    no    |
+| `flow_logs_retention_duration`         | Flow log retention in days, in 30-day increments from 30 to 180.                                             | `number`        | `90`              |    no    |
 | `freeform_tags`                        | Free-form tags applied to the created resources.                                                             | `map(string)`   | `{}`              |    no    |
 | `defined_tags`                         | Defined tags applied to the created resources, keyed as `namespace.key`.                                     | `map(string)`   | `{}`              |    no    |
 
@@ -118,7 +118,7 @@ Security rule objects accept:
 
 | Attribute                        | Ingress | Egress | Type                                        |
 |----------------------------------|:-------:|:------:|---------------------------------------------|
-| `protocol`                       |   yes   |  yes   | `string` — `"all"`, `"1"` (ICMP), `"6"` (TCP), `"17"` (UDP) |
+| `protocol`                       |   yes   |  yes   | `string` — `"all"`, `"1"` (ICMP), `"6"` (TCP), `"17"` (UDP), `"58"` (ICMPv6) |
 | `source` / `destination`         | `source` | `destination` | `string`                            |
 | `source_type` / `destination_type` | `source_type` | `destination_type` | `string` (optional)      |
 | `description`                    |   yes   |  yes   | `string` (optional)                          |
