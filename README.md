@@ -2,9 +2,11 @@
 
 Terraform module that manages an [Oracle Cloud Infrastructure](https://www.oracle.com/cloud/)
 Virtual Cloud Network (VCN). It creates a single VCN, closes down the default
-security list OCI ships with it, optionally turns on VCN flow logs, and exposes
-the OCIDs of the default route table, security list and DHCP options so
-companion modules (subnets, gateways, route tables) can build on top of it.
+security list OCI ships with it, optionally adds an internet gateway and a NAT
+gateway together with the route tables that make them usable, optionally turns
+on VCN flow logs, and exposes the OCIDs of the default route table, security
+list and DHCP options so companion modules (subnets, route tables) can build on
+top of it.
 
 ## Usage
 
@@ -70,6 +72,124 @@ module "vcn" {
 Set `manage_default_security_list = false` to leave the list entirely to
 something else — note that this keeps Oracle's built-in open-SSH rule.
 
+## Gateways
+
+The module used to have two companions, `terraform-oci-internet-gateway` and
+`terraform-oci-nat-gateway`; both are archived and their scope lives here.
+Both gateways are off by default and turned on by setting an object:
+
+```hcl
+module "vcn" {
+  # ...
+  internet_gateway = {}
+  nat_gateway = {
+    reserve_public_ip = true
+  }
+}
+
+resource "oci_core_subnet" "public" {
+  # ...
+  route_table_id = module.vcn.public_route_table_id
+}
+
+resource "oci_core_subnet" "private" {
+  # ...
+  prohibit_public_ip_on_vnic = true
+  route_table_id             = module.vcn.private_route_table_id
+}
+```
+
+A gateway on its own routes nothing: a subnet reaches the internet only once
+its route table sends the default route to the gateway, and its security lists
+or NSGs allow the traffic. So by default the module also creates
+
+- a public route table (`public_route_table_id`) with `0.0.0.0/0`, plus `::/0`
+  when `is_ipv6enabled = true`, pointing at the internet gateway;
+- a private route table (`private_route_table_id`) with `0.0.0.0/0` pointing at
+  the NAT gateway. OCI does not route IPv6 through a NAT gateway.
+
+Set `create_route_table = false` on either object to skip its route table and
+write the rules yourself. The route tables are not attached to any subnet; that
+stays with whoever creates the subnets. Security rules are not touched either.
+
+`internet_gateway` attributes:
+
+| Attribute                  | Description                                                                                  | Type     | Default              |
+|----------------------------|----------------------------------------------------------------------------------------------|----------|----------------------|
+| `display_name`             | Gateway name.                                                                                | `string` | `<display_name>-igw` |
+| `enabled`                  | Whether the gateway passes traffic. A disabled gateway applies cleanly and blackholes traffic. | `bool`   | `true`               |
+| `route_table_id`           | Ingress route table for traffic arriving through the gateway (transit routing). Not the subnet route table. Null uses the VCN default. | `string` | `null` |
+| `create_route_table`       | Create the public route table with the default route to the gateway.                         | `bool`   | `true`               |
+| `route_table_display_name` | Public route table name.                                                                     | `string` | `<display_name>-public` |
+
+`nat_gateway` attributes:
+
+| Attribute                  | Description                                                                                  | Type     | Default              |
+|----------------------------|----------------------------------------------------------------------------------------------|----------|----------------------|
+| `display_name`             | Gateway name.                                                                                | `string` | `<display_name>-nat` |
+| `block_traffic`            | Break-glass switch: OCI drops all traffic through the gateway while routes still point at it. | `bool`   | `false`              |
+| `reserve_public_ip`        | Create a reserved public IP and assign it to the gateway. See below.                         | `bool`   | `false`              |
+| `public_ip_id`             | Reserved public IP managed elsewhere. Mutually exclusive with `reserve_public_ip`.           | `string` | `null`               |
+| `route_table_id`           | Route table the gateway itself uses (transit routing). Null uses the VCN default.            | `string` | `null`               |
+| `create_route_table`       | Create the private route table with the default route to the gateway.                        | `bool`   | `true`               |
+| `route_table_display_name` | Private route table name.                                                                    | `string` | `<display_name>-private` |
+
+OCID inputs are checked for the expected prefix (`ocid1.routetable.`,
+`ocid1.publicip.`), so a transposed OCID fails at plan time.
+
+### NAT egress IP
+
+With neither `reserve_public_ip` nor `public_ip_id`, OCI gives the NAT gateway
+an ephemeral public IP that changes whenever the gateway is recreated. If a
+partner allow-lists your egress address, set `reserve_public_ip = true`: the
+module creates an `oci_core_public_ip` with `lifetime = "RESERVED"` and assigns
+it to the gateway, so the address survives a gateway recreate. `nat_ip` reports
+the address either way.
+
+That reserved IP is in this module's state. Removing `nat_gateway`, turning
+`reserve_public_ip` off or destroying the module deletes it, and the address goes back to Oracle's pool. A module cannot make `prevent_destroy` depend on an
+input, so when the address must outlive the module, create it in the root
+configuration with `prevent_destroy` and pass its OCID instead:
+
+```hcl
+resource "oci_core_public_ip" "nat" {
+  compartment_id = var.compartment_id
+  lifetime       = "RESERVED"
+  display_name   = "prod-nat-ip"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+module "vcn" {
+  # ...
+  nat_gateway = {
+    public_ip_id = oci_core_public_ip.nat.id
+  }
+}
+```
+
+### Migrating from the archived modules
+
+Keep the existing gateways by moving them in state instead of recreating them
+(a NAT gateway recreated without a reserved IP gets a new address):
+
+```hcl
+moved {
+  from = module.internet_gateway.oci_core_internet_gateway.this
+  to   = module.vcn.oci_core_internet_gateway.this[0]
+}
+
+moved {
+  from = module.nat_gateway.oci_core_nat_gateway.this
+  to   = module.vcn.oci_core_nat_gateway.this[0]
+}
+```
+
+Set `display_name` in the objects to the names the gateways already have, or
+the next apply renames them.
+
 ## Flow logs
 
 `enable_flow_logs = true` creates an OCI Logging log for the VCN (service
@@ -111,6 +231,8 @@ on 1.5.
 | `enable_flow_logs`                     | Enable VCN flow logs through the OCI Logging service.                                                        | `bool`          | `false`           |    no    |
 | `flow_logs_log_group_id`               | Existing log group OCID for the flow log. Null creates one.                                                  | `string`        | `null`            |    no    |
 | `flow_logs_retention_duration`         | Flow log retention in days, in 30-day increments from 30 to 180.                                             | `number`        | `90`              |    no    |
+| `internet_gateway`                     | Internet gateway and its public route table. Null creates none. See [Gateways](#gateways).                   | `object`        | `null`            |    no    |
+| `nat_gateway`                          | NAT gateway, its private route table and optional reserved IP. Null creates none. See [Gateways](#gateways). | `object`        | `null`            |    no    |
 | `freeform_tags`                        | Free-form tags applied to the created resources.                                                             | `map(string)`   | `{}`              |    no    |
 | `defined_tags`                         | Defined tags applied to the created resources, keyed as `namespace.key`.                                     | `map(string)`   | `{}`              |    no    |
 
@@ -139,6 +261,12 @@ Security rule objects accept:
 | `vcn_domain_name`          | Internal domain name of the VCN, if a dns_label was set. |
 | `flow_log_id`              | OCID of the VCN flow log, or null when disabled.         |
 | `flow_log_group_id`        | OCID of the log group holding the flow log, or null.     |
+| `internet_gateway_id`      | OCID of the internet gateway, or null.                   |
+| `public_route_table_id`    | OCID of the route table sending the default route to the internet gateway, or null. |
+| `nat_gateway_id`           | OCID of the NAT gateway, or null.                        |
+| `nat_ip`                   | Public IP the NAT gateway uses for outbound traffic, or null. |
+| `nat_public_ip_id`         | OCID of the reserved public IP the module created for the NAT gateway, or null. |
+| `private_route_table_id`   | OCID of the route table sending the default route to the NAT gateway, or null. |
 
 ## Development
 
