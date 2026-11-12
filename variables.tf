@@ -115,13 +115,92 @@ variable "flow_logs_retention_duration" {
 }
 
 variable "freeform_tags" {
-  description = "Free-form tags applied to the VCN."
+  description = "Free-form tags applied to every resource the module creates."
   type        = map(string)
   default     = {}
 }
 
 variable "defined_tags" {
-  description = "Defined tags applied to the VCN, keyed as \"namespace.key\"."
+  description = "Defined tags applied to every resource the module creates, keyed as \"namespace.key\"."
   type        = map(string)
   default     = {}
+}
+
+variable "internet_gateway" {
+  description = <<-EOT
+    Internet gateway for the VCN. Null (the default) creates none. When set, the
+    module creates the gateway and, unless create_route_table is false, a public
+    route table that sends 0.0.0.0/0 (and ::/0 when IPv6 is enabled) to it; attach
+    that route table to public subnets. route_table_id is the ingress route table
+    for traffic arriving through the gateway (transit routing), not the subnet route
+    table; null uses the VCN default.
+  EOT
+  type = object({
+    display_name             = optional(string)
+    enabled                  = optional(bool, true)
+    route_table_id           = optional(string)
+    create_route_table       = optional(bool, true)
+    route_table_display_name = optional(string)
+  })
+  default = null
+
+  validation {
+    condition = (
+      var.internet_gateway == null
+      ? true
+      : var.internet_gateway.route_table_id == null || can(regex("^ocid1\\.routetable\\.", var.internet_gateway.route_table_id))
+    )
+    error_message = "internet_gateway.route_table_id must be null or a route table OCID (starting with \"ocid1.routetable.\")."
+  }
+}
+
+variable "nat_gateway" {
+  description = <<-EOT
+    NAT gateway for the VCN. Null (the default) creates none. When set, the module
+    creates the gateway and, unless create_route_table is false, a private route
+    table that sends 0.0.0.0/0 to it; attach that route table to private subnets.
+    reserve_public_ip = true also creates a reserved public IP and assigns it to the
+    gateway, so the egress address survives a gateway recreate. public_ip_id assigns
+    a reserved public IP managed elsewhere instead; the two are mutually exclusive.
+    Null for both lets Oracle allocate an ephemeral IP. block_traffic = true makes
+    OCI drop all traffic through the gateway. route_table_id is the route table the
+    gateway itself uses (transit routing); null uses the VCN default.
+  EOT
+  type = object({
+    display_name             = optional(string)
+    block_traffic            = optional(bool, false)
+    reserve_public_ip        = optional(bool, false)
+    public_ip_id             = optional(string)
+    route_table_id           = optional(string)
+    create_route_table       = optional(bool, true)
+    route_table_display_name = optional(string)
+  })
+  default = null
+
+  validation {
+    condition = (
+      var.nat_gateway == null
+      ? true
+      : var.nat_gateway.public_ip_id == null || can(regex("^ocid1\\.publicip\\.", var.nat_gateway.public_ip_id))
+    )
+    error_message = "nat_gateway.public_ip_id must be null or a reserved public IP OCID (starting with \"ocid1.publicip.\")."
+  }
+
+  validation {
+    condition = (
+      var.nat_gateway == null
+      ? true
+      : !(var.nat_gateway.reserve_public_ip && var.nat_gateway.public_ip_id != null)
+    )
+    error_message = "Set either nat_gateway.reserve_public_ip or nat_gateway.public_ip_id, not both."
+  }
+
+  validation {
+    condition = (
+      var.nat_gateway == null
+      ? true
+      : var.nat_gateway.route_table_id == null || can(regex("^ocid1\\.routetable\\.", var.nat_gateway.route_table_id))
+    )
+    error_message = "nat_gateway.route_table_id must be null or a route table OCID (starting with \"ocid1.routetable.\")."
+  }
 }

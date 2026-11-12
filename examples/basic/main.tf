@@ -38,6 +38,13 @@ module "vcn" {
     }
   ]
 
+  # Public subnets attach public_route_table_id, private ones
+  # private_route_table_id; both tables already carry the default route.
+  internet_gateway = {}
+  nat_gateway = {
+    reserve_public_ip = true
+  }
+
   enable_flow_logs = true
 
   freeform_tags = {
@@ -57,4 +64,16 @@ output "vcn_id" {
 
 output "flow_log_id" {
   value = module.vcn.flow_log_id
+}
+
+output "public_route_table_id" {
+  value = module.vcn.public_route_table_id
+}
+
+output "private_route_table_id" {
+  value = module.vcn.private_route_table_id
+}
+
+output "nat_ip" {
+  value = module.vcn.nat_ip
 }

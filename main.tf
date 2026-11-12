@@ -149,3 +149,99 @@ locals {
     : one(oci_logging_log_group.flow_logs[*].id)
   )
 }
+
+# Internet gateway. On its own it routes nothing: a subnet only reaches the
+# internet once its route table sends 0.0.0.0/0 to the gateway, which is the
+# step people forget, so the module also creates that public route table unless
+# told not to.
+resource "oci_core_internet_gateway" "this" {
+  count = var.internet_gateway == null ? 0 : 1
+
+  compartment_id = var.compartment_id
+  vcn_id         = oci_core_vcn.this.id
+  display_name   = coalesce(var.internet_gateway.display_name, "${var.display_name}-igw")
+  enabled        = var.internet_gateway.enabled
+  route_table_id = var.internet_gateway.route_table_id
+
+  freeform_tags = var.freeform_tags
+  defined_tags  = var.defined_tags
+}
+
+resource "oci_core_route_table" "public" {
+  count = var.internet_gateway != null && try(var.internet_gateway.create_route_table, false) ? 1 : 0
+
+  compartment_id = var.compartment_id
+  vcn_id         = oci_core_vcn.this.id
+  display_name   = coalesce(var.internet_gateway.route_table_display_name, "${var.display_name}-public")
+
+  route_rules {
+    destination       = "0.0.0.0/0"
+    destination_type  = "CIDR_BLOCK"
+    network_entity_id = oci_core_internet_gateway.this[0].id
+    description       = "IPv4 default route to the internet gateway."
+  }
+
+  # IPv6 egress goes through the internet gateway too: an IPv6 route rule can
+  # only target an internet gateway or a DRG, never a NAT gateway.
+  dynamic "route_rules" {
+    for_each = var.is_ipv6enabled ? [1] : []
+
+    content {
+      destination       = "::/0"
+      destination_type  = "CIDR_BLOCK"
+      network_entity_id = oci_core_internet_gateway.this[0].id
+      description       = "IPv6 default route to the internet gateway."
+    }
+  }
+
+  freeform_tags = var.freeform_tags
+  defined_tags  = var.defined_tags
+}
+
+# Reserved public IP for the NAT gateway. Partners allow-list the egress
+# address, and an ephemeral one changes whenever the gateway is recreated. The
+# IP lives in this module's state, so dropping nat_gateway or turning
+# reserve_public_ip off releases it; callers who need it to outlive the module
+# create it themselves (with prevent_destroy) and pass public_ip_id instead.
+resource "oci_core_public_ip" "nat" {
+  count = var.nat_gateway != null && try(var.nat_gateway.reserve_public_ip, false) ? 1 : 0
+
+  compartment_id = var.compartment_id
+  lifetime       = "RESERVED"
+  display_name   = "${coalesce(var.nat_gateway.display_name, "${var.display_name}-nat")}-ip"
+
+  freeform_tags = var.freeform_tags
+  defined_tags  = var.defined_tags
+}
+
+resource "oci_core_nat_gateway" "this" {
+  count = var.nat_gateway == null ? 0 : 1
+
+  compartment_id = var.compartment_id
+  vcn_id         = oci_core_vcn.this.id
+  display_name   = coalesce(var.nat_gateway.display_name, "${var.display_name}-nat")
+  block_traffic  = var.nat_gateway.block_traffic
+  public_ip_id   = var.nat_gateway.reserve_public_ip ? oci_core_public_ip.nat[0].id : var.nat_gateway.public_ip_id
+  route_table_id = var.nat_gateway.route_table_id
+
+  freeform_tags = var.freeform_tags
+  defined_tags  = var.defined_tags
+}
+
+resource "oci_core_route_table" "private" {
+  count = var.nat_gateway != null && try(var.nat_gateway.create_route_table, false) ? 1 : 0
+
+  compartment_id = var.compartment_id
+  vcn_id         = oci_core_vcn.this.id
+  display_name   = coalesce(var.nat_gateway.route_table_display_name, "${var.display_name}-private")
+
+  route_rules {
+    destination       = "0.0.0.0/0"
+    destination_type  = "CIDR_BLOCK"
+    network_entity_id = oci_core_nat_gateway.this[0].id
+    description       = "IPv4 default route to the NAT gateway."
+  }
+
+  freeform_tags = var.freeform_tags
+  defined_tags  = var.defined_tags
+}

@@ -42,3 +42,33 @@ output "flow_log_group_id" {
   description = "OCID of the log group holding the VCN flow log, or null when flow logs are disabled."
   value       = var.enable_flow_logs ? local.flow_logs_log_group_id : null
 }
+
+output "internet_gateway_id" {
+  description = "OCID of the internet gateway, or null when internet_gateway is not set."
+  value       = one(oci_core_internet_gateway.this[*].id)
+}
+
+output "public_route_table_id" {
+  description = "OCID of the public route table that sends 0.0.0.0/0 (and ::/0 with IPv6) to the internet gateway, or null when it is not created."
+  value       = one(oci_core_route_table.public[*].id)
+}
+
+output "nat_gateway_id" {
+  description = "OCID of the NAT gateway, or null when nat_gateway is not set."
+  value       = one(oci_core_nat_gateway.this[*].id)
+}
+
+output "nat_ip" {
+  description = "Public IP address the NAT gateway uses for outbound traffic, or null when nat_gateway is not set."
+  value       = one(oci_core_nat_gateway.this[*].nat_ip)
+}
+
+output "nat_public_ip_id" {
+  description = "OCID of the reserved public IP the module created for the NAT gateway, or null when reserve_public_ip is off."
+  value       = one(oci_core_public_ip.nat[*].id)
+}
+
+output "private_route_table_id" {
+  description = "OCID of the private route table that sends 0.0.0.0/0 to the NAT gateway, or null when it is not created."
+  value       = one(oci_core_route_table.private[*].id)
+}
